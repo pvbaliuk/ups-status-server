@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UPS Monitor</title>
+  <style>
+    :root{
+      color-scheme: light;
+      --bg: #0f1a24;
+      --bg-2: #1b2c38;
+      --ink: #f6f0e6;
+      --muted: #b8c2c7;
+      --panel: rgba(255,255,255,0.08);
+      --panel-2: rgba(255,255,255,0.14);
+      --accent: #f4b860;
+      --accent-2: #57c4a8;
+      --danger: #f06b6b;
+      --glow: 0 28px 70px rgba(0,0,0,0.35);
+      --radius: 20px;
+      --display-font: "Fraunces","Baskerville","Garamond",serif;
+      --body-font: "Work Sans","Gill Sans","Trebuchet MS",sans-serif;
+    }
+
+    *{box-sizing: border-box}
+    html, body{height: 100%}
+    body{
+      margin: 0;
+      font-family: var(--body-font);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 700px at 80% -10%, rgba(244,184,96,0.28), transparent 60%),
+        radial-gradient(800px 650px at -10% 10%, rgba(87,196,168,0.24), transparent 55%),
+        linear-gradient(160deg, var(--bg), var(--bg-2));
+      overflow-x: hidden;
+      overflow-y: hidden;
+    }
+
+    .stage{
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 32px 20px 32px;
+      position: relative;
+    }
+
+    .stage::before,
+    .stage::after{
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(1px);
+      opacity: 0.45;
+      z-index: 0;
+    }
+    .stage::before{
+      width: 380px;
+      height: 380px;
+      background: radial-gradient(circle, rgba(244,184,96,0.35), transparent 70%);
+      top: 6%;
+      left: 4%;
+    }
+    .stage::after{
+      width: 460px;
+      height: 460px;
+      background: radial-gradient(circle, rgba(87,196,168,0.32), transparent 70%);
+      bottom: -10%;
+      right: 6%;
+    }
+
+    .dash{
+      width: min(1080px, 100%);
+      background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: calc(var(--radius) + 8px);
+      box-shadow: var(--glow);
+      padding: 30px;
+      position: relative;
+      z-index: 1;
+      backdrop-filter: blur(12px);
+      animation: float-in 0.9s ease-out;
+    }
+
+    @keyframes float-in{
+      from{transform: translateY(16px); opacity: 0}
+      to{transform: translateY(0); opacity: 1}
+    }
+
+    .header{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 26px;
+    }
+
+    .title{
+      font-family: var(--display-font);
+      font-size: clamp(28px, 4vw, 40px);
+      margin: 0 0 6px;
+      letter-spacing: 0.4px;
+    }
+
+    .subtitle{
+      color: var(--muted);
+      font-size: 14px;
+      margin: 0;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+
+    .status-pill{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.18);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .pulse{
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent-2);
+      box-shadow: 0 0 0 0 rgba(87,196,168,0.6);
+      animation: pulse 2.2s infinite;
+    }
+
+    .status-pill.offline .pulse{
+      background: var(--danger);
+      box-shadow: none;
+      animation: none;
+    }
+
+    @keyframes pulse{
+      0%{box-shadow: 0 0 0 0 rgba(87,196,168,0.6)}
+      70%{box-shadow: 0 0 0 12px rgba(87,196,168,0)}
+      100%{box-shadow: 0 0 0 0 rgba(87,196,168,0)}
+    }
+
+    .meta{
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    .grid{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+    }
+
+    .card{
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius);
+      padding: 18px 18px 16px;
+      min-height: 128px;
+      position: relative;
+      overflow: hidden;
+      animation: rise 0.8s ease-out;
+    }
+
+    .card::after{
+      content: "";
+      position: absolute;
+      inset: auto -20% -40% auto;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 70%);
+      opacity: 0.2;
+    }
+
+    @keyframes rise{
+      from{transform: translateY(10px); opacity: 0}
+      to{transform: translateY(0); opacity: 1}
+    }
+
+    .label{
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .value{
+      font-size: clamp(26px, 3.6vw, 34px);
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .unit{
+      font-size: 14px;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+
+    .meter{
+      margin-top: 14px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .meter > span{
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent-2), var(--accent));
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    .footer{
+      margin-top: 22px;
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .dash.offline .card{
+      opacity: 0.65;
+    }
+
+    @media (max-width: 720px){
+      .header{
+        grid-template-columns: 1fr;
+      }
+      .footer{
+        flex-direction: column;
+        gap: 8px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section class="dash" id="dash">
+      <header class="header">
+        <div>
+          <h1 class="title">UPS Status Console</h1>
+          <p class="subtitle">Live power and battery telemetry</p>
+          <div class="meta" id="updated">Last update: --</div>
+        </div>
+        <div class="status-pill" id="statusPill">
+          <span class="pulse"></span>
+          <span id="statusText">Checking...</span>
+        </div>
+      </header>
+
+      <section class="grid">
+        <article class="card">
+          <div class="label">Input Voltage</div>
+          <div class="value"><span id="inputVoltage">--</span><span class="unit">V</span></div>
+        </article>
+        <article class="card">
+          <div class="label">Output Voltage</div>
+          <div class="value"><span id="outputVoltage">--</span><span class="unit">V</span></div>
+        </article>
+        <article class="card">
+          <div class="label">Battery Voltage</div>
+          <div class="value"><span id="batteryVoltage">--</span><span class="unit">V</span></div>
+        </article>
+        <article class="card">
+          <div class="label">Line Frequency</div>
+          <div class="value"><span id="lineFrequency">--</span><span class="unit">Hz</span></div>
+        </article>
+        <article class="card">
+          <div class="label">UPS Load</div>
+          <div class="value"><span id="upsLoad">--</span><span class="unit">%</span></div>
+          <div class="meter"><span id="loadMeter"></span></div>
+        </article>
+      </section>
+
+      <div class="footer">
+        <div>Endpoint: /ups/status</div>
+        <div>Polling: every 1s</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      dash: document.getElementById('dash'),
+      statusPill: document.getElementById('statusPill'),
+      statusText: document.getElementById('statusText'),
+      updated: document.getElementById('updated'),
+      inputVoltage: document.getElementById('inputVoltage'),
+      outputVoltage: document.getElementById('outputVoltage'),
+      batteryVoltage: document.getElementById('batteryVoltage'),
+      lineFrequency: document.getElementById('lineFrequency'),
+      upsLoad: document.getElementById('upsLoad'),
+      loadMeter: document.getElementById('loadMeter')
+    };
+
+    const number = (value, digits = 1) => {
+      if (value === null || value === undefined || Number.isNaN(value)) return '--';
+      return Number(value).toFixed(digits).replace(/\.0$/, '');
+    };
+
+    const setConnected = (isConnected) => {
+      els.dash.classList.toggle('offline', !isConnected);
+      els.statusPill.classList.toggle('offline', !isConnected);
+      els.statusText.textContent = isConnected ? 'Connected' : 'Not connected';
+    };
+
+    const render = (data) => {
+      const connected = data && data.status === 'connected';
+      setConnected(connected);
+
+      if (!connected) {
+        els.inputVoltage.textContent = '--';
+        els.outputVoltage.textContent = '--';
+        els.batteryVoltage.textContent = '--';
+        els.lineFrequency.textContent = '--';
+        els.upsLoad.textContent = '--';
+        els.loadMeter.style.width = '0%';
+        return;
+      }
+
+      els.inputVoltage.textContent = number(data.inputVoltage, 1);
+      els.outputVoltage.textContent = number(data.outputVoltage, 1);
+      els.batteryVoltage.textContent = number(data.batteryVoltage, 1);
+      els.lineFrequency.textContent = number(data.lineFrequency, 1);
+      els.upsLoad.textContent = number(data.upsLoad, 0);
+      const loadValue = Math.max(0, Math.min(100, Number(data.upsLoad) || 0));
+      els.loadMeter.style.width = loadValue + '%';
+    };
+
+    const updateTimestamp = () => {
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-GB', {hour12: false});
+      els.updated.textContent = 'Last update: ' + time;
+    };
+
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch('/ups/status', {cache: 'no-store'});
+        if (!response.ok) throw new Error('Bad response');
+        const data = await response.json();
+        render(data);
+        updateTimestamp();
+      } catch (err) {
+        setConnected(false);
+      }
+    };
+
+    fetchStatus();
+    setInterval(fetchStatus, 1000);
+  </script>
+</body>
+</html>

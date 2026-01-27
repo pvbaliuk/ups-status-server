@@ -1,0 +1,11 @@
+{
+  "restartable": "rs",
+  "verbose": false,
+  "watch": [
+    "./src"
+  ],
+  "ext": "ts",
+  "exec": "node --no-warnings --conditions=dev -r ts-node/register ./src/index.ts",
+  "delay": 500,
+  "signal": "SIGTERM"
+}
