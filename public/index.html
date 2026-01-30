@@ -155,6 +155,10 @@
       gap: 18px;
     }
 
+    .wide{
+      grid-column: 1 / -1;
+    }
+
     .card{
       background: var(--panel);
       border: 1px solid rgba(255,255,255,0.12);
@@ -234,6 +238,65 @@
       opacity: 0.65;
     }
 
+    .history{
+      display: grid;
+      gap: 16px;
+    }
+
+    .history-header{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .history-title{
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.3px;
+    }
+
+    .range{
+      display: inline-flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .range button{
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+      color: var(--ink);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .range button.active{
+      background: rgba(244,184,96,0.2);
+      border-color: rgba(244,184,96,0.5);
+      box-shadow: 0 0 0 1px rgba(244,184,96,0.3) inset;
+    }
+
+    .chart-wrap{
+      position: relative;
+      height: 260px;
+      width: 100%;
+    }
+
+    .history-meta{
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
     @media (max-width: 720px){
       .header{
         grid-template-columns: 1fr;
@@ -241,6 +304,9 @@
       .footer{
         flex-direction: column;
         gap: 8px;
+      }
+      .chart-wrap{
+        height: 220px;
       }
     }
   </style>
@@ -282,6 +348,27 @@
           <div class="value"><span id="upsLoad">--</span><span class="unit">%</span></div>
           <div class="meter"><span id="loadMeter"></span></div>
         </article>
+        <article class="card wide history">
+          <div class="history-header">
+            <div>
+              <p class="label">History</p>
+              <h2 class="history-title">Voltage over time</h2>
+            </div>
+            <div class="range" id="historyRange">
+              <button type="button" data-range="1h">1h</button>
+              <button type="button" data-range="6h" class="active">6h</button>
+              <button type="button" data-range="24h">24h</button>
+              <button type="button" data-range="7d">7d</button>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="historyChart"></canvas>
+          </div>
+          <div class="history-meta">
+            <div id="historyWindow">Window: --</div>
+            <div id="historyCount">Points: --</div>
+          </div>
+        </article>
       </section>
 
       <div class="footer">
@@ -291,6 +378,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script>
     const els = {
       dash: document.getElementById('dash'),
@@ -302,7 +390,11 @@
       batteryVoltage: document.getElementById('batteryVoltage'),
       lineFrequency: document.getElementById('lineFrequency'),
       upsLoad: document.getElementById('upsLoad'),
-      loadMeter: document.getElementById('loadMeter')
+      loadMeter: document.getElementById('loadMeter'),
+      historyRange: document.getElementById('historyRange'),
+      historyWindow: document.getElementById('historyWindow'),
+      historyCount: document.getElementById('historyCount'),
+      historyChart: document.getElementById('historyChart')
     };
 
     const number = (value, digits = 1) => {
@@ -330,12 +422,13 @@
         return;
       }
 
-      els.inputVoltage.textContent = number(data.inputVoltage, 1);
-      els.outputVoltage.textContent = number(data.outputVoltage, 1);
-      els.batteryVoltage.textContent = number(data.batteryVoltage, 1);
-      els.lineFrequency.textContent = number(data.lineFrequency, 1);
-      els.upsLoad.textContent = number(data.upsLoad, 0);
-      const loadValue = Math.max(0, Math.min(100, Number(data.upsLoad) || 0));
+      const voltages = data?.voltages || {};
+      els.inputVoltage.textContent = number(voltages.input, 1);
+      els.outputVoltage.textContent = number(voltages.output, 1);
+      els.batteryVoltage.textContent = number(voltages.battery, 1);
+      els.lineFrequency.textContent = number(data.outputFrequency, 1);
+      els.upsLoad.textContent = number(data.loadLevel, 0);
+      const loadValue = Math.max(0, Math.min(100, Number(data.loadLevel) || 0));
       els.loadMeter.style.width = loadValue + '%';
     };
 
@@ -343,6 +436,129 @@
       const now = new Date();
       const time = now.toLocaleTimeString('en-GB', {hour12: false});
       els.updated.textContent = 'Last update: ' + time;
+    };
+
+    const pad = (value) => String(value).padStart(2, '0');
+
+    const formatDtUtc = (dt) => {
+      return [
+        pad(dt.getUTCMonth() + 1),
+        pad(dt.getUTCDate()),
+        dt.getUTCFullYear()
+      ].join('-') + ' ' + [
+        pad(dt.getUTCHours()),
+        pad(dt.getUTCMinutes()),
+        pad(dt.getUTCSeconds())
+      ].join(':');
+    };
+
+    const rangeToMs = (range) => {
+      switch (range) {
+        case '1h': return 60 * 60 * 1000;
+        case '6h': return 6 * 60 * 60 * 1000;
+        case '24h': return 24 * 60 * 60 * 1000;
+        case '7d': return 7 * 24 * 60 * 60 * 1000;
+        default: return 6 * 60 * 60 * 1000;
+      }
+    };
+
+    const historyChart = new Chart(els.historyChart.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Input Voltage',
+            data: [],
+            borderColor: 'rgba(244,184,96,0.9)',
+            backgroundColor: 'rgba(244,184,96,0.12)',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0
+          },
+          {
+            label: 'Output Voltage',
+            data: [],
+            borderColor: 'rgba(87,196,168,0.9)',
+            backgroundColor: 'rgba(87,196,168,0.12)',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {mode: 'index', intersect: false},
+        plugins: {
+          legend: {
+            labels: {
+              color: '#f6f0e6',
+              boxWidth: 12,
+              boxHeight: 12
+            }
+          },
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0]?.label || ''
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {color: '#b8c2c7', maxTicksLimit: 6},
+            grid: {color: 'rgba(255,255,255,0.05)'}
+          },
+          y: {
+            ticks: {color: '#b8c2c7'},
+            grid: {color: 'rgba(255,255,255,0.05)'}
+          }
+        }
+      }
+    });
+
+    let historyRange = '6h';
+
+    const updateHistoryMeta = (from, to, count) => {
+      els.historyWindow.textContent = `Window (UTC): ${formatDtUtc(from)} → ${formatDtUtc(to)}`;
+      els.historyCount.textContent = `Points: ${count}`;
+    };
+
+    const fetchHistory = async () => {
+      const now = new Date();
+      const from = new Date(now.getTime() - rangeToMs(historyRange));
+      const query = `from=${encodeURIComponent(formatDtUtc(from))}&to=${encodeURIComponent(formatDtUtc(now))}`;
+
+      try {
+        const response = await fetch(`/ups/history?${query}`, {cache: 'no-store'});
+        if (!response.ok) throw new Error('Bad response');
+        const data = await response.json();
+        const rows = Array.isArray(data) ? data : [];
+        const labels = [];
+        const input = [];
+        const output = [];
+
+        rows.forEach((entry) => {
+          const ts = new Date(entry.ts);
+          const label = `${pad(ts.getUTCHours())}:${pad(ts.getUTCMinutes())}:${pad(ts.getUTCSeconds())}`;
+          labels.push(label);
+          input.push(entry.inputVoltage ?? null);
+          output.push(entry.outputVoltage ?? null);
+        });
+
+        historyChart.data.labels = labels;
+        historyChart.data.datasets[0].data = input;
+        historyChart.data.datasets[1].data = output;
+        historyChart.update('none');
+        updateHistoryMeta(from, now, rows.length);
+      } catch (err) {
+        historyChart.data.labels = [];
+        historyChart.data.datasets[0].data = [];
+        historyChart.data.datasets[1].data = [];
+        historyChart.update('none');
+        updateHistoryMeta(from, now, 0);
+      }
     };
 
     const fetchStatus = async () => {
@@ -357,8 +573,20 @@
       }
     };
 
+    els.historyRange.addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-range]');
+      if (!btn) return;
+      historyRange = btn.getAttribute('data-range');
+      Array.from(els.historyRange.querySelectorAll('button')).forEach((el) => {
+        el.classList.toggle('active', el === btn);
+      });
+      fetchHistory();
+    });
+
     fetchStatus();
+    fetchHistory();
     setInterval(fetchStatus, 1000);
+    setInterval(fetchHistory, 30000);
   </script>
 </body>
 </html>

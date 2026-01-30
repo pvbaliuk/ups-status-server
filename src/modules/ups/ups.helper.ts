@@ -2,7 +2,7 @@ import {devicesAsync, HID} from 'node-hid';
 import {Logger} from '@nestjs/common';
 import {formatError} from '@helpers/utils';
 import {UPS_QS_REGEX} from './consts';
-import {UpsCommand, UPSStatusData} from './types';
+import {UpsCommand, UPSStatusData, upsStatusDataSchema} from './types';
 
 export class UpsHelper{
 
@@ -23,7 +23,7 @@ export class UpsHelper{
                 is_ok = UpsHelper.pingDevice(hid);
 
             if(is_ok){
-                UpsHelper.logger.debug(`UPS device found! Vendor Id: ${device.vendorId}; product Id: ${device.productId}`);
+                UpsHelper.logger.debug(`UPS device found! Vendor Id: ${device.vendorId}; product Id: ${device.productId}; manufacturer: ${device.manufacturer}`);
                 return hid;
             }else{
                 UpsHelper.closeDevice(hid);
@@ -48,7 +48,8 @@ export class UpsHelper{
         try{
             bytesWritten = device.write(commandBuffer);
         }catch(e){
-            UpsHelper.logger.error(`[${command}] Failed to write command to HID. Error: ${formatError(e, false)}`);
+            const devInfo = device.getDeviceInfo();
+            UpsHelper.logger.error(`[${command}] Failed to write command to HID ${devInfo.vendorId} / ${devInfo.productId}. Error: ${formatError(e, false)}`);
             return false;
         }
 
@@ -106,21 +107,23 @@ export class UpsHelper{
         if(!UpsHelper.sendCommand(device, 'QS'))
             return null;
 
-        const response = UpsHelper.readDevice(device, 100, 1_000);
-        if(!response || !UPS_QS_REGEX.test(response))
+        const response = UpsHelper.readDevice(device, 100, 1_000),
+            matches = !response ? null : response.match(UPS_QS_REGEX);
+
+        if(!matches?.groups)
             return null;
 
-        const pieces = response.substring(1, response.length - 1)
-            .split(/\s+/)
-            .filter(v => v.trim() !== '');
+        const {success, data} = upsStatusDataSchema.safeParse(<UPSStatusData>{
+            voltages: {
+                input: Number(matches.groups['iv']),
+                output: Number(matches.groups['ov']),
+                battery: Number(matches.groups['bt'])
+            },
+            outputFrequency: Number(matches.groups['freq']),
+            loadLevel: Number(matches.groups['load'])
+        });
 
-        return {
-            inputVoltage: Number(pieces[0]),
-            outputVoltage: Number(pieces[2]),
-            batteryVoltage: Number(pieces[5]),
-            lineFrequency: Number(pieces[4]),
-            upsLoad: Number(pieces[3])
-        };
+        return success ? data : null;
     }
 
     /**

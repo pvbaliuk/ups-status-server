@@ -3,6 +3,7 @@ import {Logger} from '@nestjs/common';
 import {HID} from 'node-hid';
 import {ignorePromise} from 'jsn-utils';
 import {UpsHelper} from '../ups.helper';
+import {UPSStatusData, upsStatusDataSchema} from '../types';
 
 export class Ups{
 
@@ -74,7 +75,7 @@ export class Ups{
         if(!response)
             return;
 
-        this.port.postMessage({ups_status: response});
+        this.port.postMessage(response);
     }
 
 }
