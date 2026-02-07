@@ -2,6 +2,7 @@ import {Module} from '@nestjs/common';
 import {SequelizeModule} from '@nestjs/sequelize';
 import {UpsStat} from './ups-stats.model';
 import {UpsService} from './ups.service';
+import {UpsWorker} from './ups.worker';
 
 @Module({
     imports: [
@@ -9,8 +10,14 @@ import {UpsService} from './ups.service';
             UpsStat
         ])
     ],
-    providers: [UpsService],
-    exports: [UpsService]
+    providers: [
+        UpsService,
+        UpsWorker
+    ],
+    exports: [
+        UpsService,
+        UpsWorker
+    ]
 })
 export class UpsModule{
 

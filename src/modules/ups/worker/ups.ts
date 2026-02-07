@@ -17,6 +17,7 @@ export class Ups{
      * @returns {Promise<void>}
      */
     public async init(): Promise<void>{
+        this.logger.log('Starting up UPS stats worker...');
         ignorePromise(this.loop());
     }
 

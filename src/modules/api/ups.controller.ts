@@ -9,7 +9,7 @@ export class UpsController{
 
     @Get('status')
     public async status(@Res({passthrough: true}) res: Response, @Query() query: any){
-        const status = this.ups.getStatus();
+        const status = this.ups.getRealtimeStatus();
         if(query && query?.['text'] && (query?.['text']?.toLowerCase() === 'yes' || query?.['text']?.toLowerCase() === 'true')){
             res.contentType('text/plain');
             return [

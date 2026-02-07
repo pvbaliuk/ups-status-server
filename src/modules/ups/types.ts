@@ -19,5 +19,17 @@ export const upsHistoryEntrySchema = z.object({
     outputVoltage: z.number().min(0)
 });
 
+export const addUpsStatusDataSchema = z.object({
+    ts: z.date(),
+    voltages: z.object({
+        input: z.number().min(0).default(0),
+        output: z.number().min(0).default(0),
+        battery: z.number().min(0).default(0)
+    }).prefault({}),
+    outputFrequency: z.number().min(0).default(50),
+    loadLevel: z.number().min(0).max(100).default(0)
+});
+
 export type UPSStatusData = z.infer<typeof upsStatusDataSchema>;
 export type UPSHistoryEntry = z.infer<typeof upsHistoryEntrySchema>;
+export type AddUpsStatusData = z.input<typeof addUpsStatusDataSchema>;

@@ -1,51 +1,67 @@
-import {Worker} from 'node:worker_threads';
-import {resolve} from 'node:path';
-import {Injectable, Logger, OnModuleDestroy, OnModuleInit} from '@nestjs/common';
-import {InjectModel} from '@nestjs/sequelize';
-import {fileExists, formatError} from '@helpers/utils';
-import {UPSHistoryEntry, UPSStatusData, upsStatusDataSchema} from './types';
+import {Injectable, Logger} from '@nestjs/common';
+import {InjectConnection, InjectModel} from '@nestjs/sequelize';
+import {Op, Transaction} from 'sequelize';
+import {Repository, Sequelize} from 'sequelize-typescript';
+import {AddUpsStatusData, addUpsStatusDataSchema, UPSHistoryEntry, UPSStatusData} from './types';
 import {UpsStat} from './ups-stats.model';
-import {Op} from 'sequelize';
 
 @Injectable()
-export class UpsService implements OnModuleInit, OnModuleDestroy{
+export class UpsService{
 
     private readonly logger = new Logger(UpsService.name);
-    private worker: Worker|null = null;
     private upsStatus: UPSStatusData|null = null;
+    private readonly stats: Repository<UpsStat>;
 
     public constructor(
-        @InjectModel(UpsStat)
-        private readonly stats: typeof UpsStat
-    ) {}
-
-    /**
-     * @returns {Promise<void>}
-     */
-    public async onModuleInit(): Promise<void>{
-        const workerFilenameTs = resolve(__dirname, 'worker', 'worker.ts'),
-            workerFilenameJs = resolve(__dirname, 'worker', 'worker.js'),
-            workerFilename = (await fileExists(workerFilenameJs)) ? workerFilenameJs : workerFilenameTs;
-
-        this.worker = new Worker(workerFilename, {});
-        this.worker.on('message', this.onWorkerMessage);
+        @InjectConnection()
+        private readonly db: Sequelize
+    ) {
+        this.stats = this.db.getRepository(UpsStat);
     }
 
     /**
-     * @returns {Promise<void>}
+     * @param {AddUpsStatusData} data
+     * @returns {Promise<boolean>}
      */
-    public async onModuleDestroy(): Promise<void>{
-        if(this.worker){
-            this.worker.off('message', this.onWorkerMessage);
-            await this.worker.terminate();
-            this.worker = null;
-        }
+    public async add(data: AddUpsStatusData): Promise<boolean>{
+        const upsStatus = addUpsStatusDataSchema.parse(data);
+        const result = await this.db.transaction({isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE}, async tx => {
+            const lastEntry = await this.stats.findOne({
+                order: [['id', 'DESC']],
+                transaction: tx,
+                lock: tx.LOCK.UPDATE
+            });
+
+            if(lastEntry){
+                if(lastEntry.inputVoltage === upsStatus.voltages.input * 100
+                && lastEntry.outputVoltage === upsStatus.voltages.output * 100){
+                    lastEntry.measurements += 1;
+                    lastEntry.toTs = upsStatus.ts;
+
+                    await lastEntry.save({transaction: tx});
+                    return true;
+                }
+            }
+
+            await this.stats.create({
+                inputVoltage: upsStatus.voltages.input * 100,
+                outputVoltage: upsStatus.voltages.output * 100,
+                measurements: 1,
+                fromTs: upsStatus.ts,
+                toTs: upsStatus.ts
+            }, {transaction: tx});
+
+            return true;
+        });
+
+        this.upsStatus = upsStatus;
+        return result;
     }
 
     /**
      * @returns {UPSStatusData | null}
      */
-    public getStatus(): UPSStatusData|null{
+    public getRealtimeStatus(): UPSStatusData|null{
         if(!this.upsStatus)
             return null;
 
@@ -66,41 +82,20 @@ export class UpsService implements OnModuleInit, OnModuleDestroy{
 
         const entries = await this.stats.findAll({
             where: {
-                ts: {
-                    [Op.gte]: from,
-                    [Op.lte]: to ?? new Date()
+                fromTs: {
+                    [Op.gte]: from
                 },
+                toTs: {
+                    [Op.lte]: to
+                }
             }
         });
 
         return entries.map(entry => ({
-            ts: entry.ts,
-            inputVoltage: entry.inputVoltage,
-            outputVoltage: entry.outputVoltage
+            ts: entry.fromTs,
+            inputVoltage: entry.inputVoltage / 100,
+            outputVoltage: entry.outputVoltage / 100
         }));
-    }
-
-    /**
-     * @param {UPSStatusData} message
-     * @returns {Promise<void>}
-     */
-    private onWorkerMessage = async (message: UPSStatusData): Promise<void> => {
-        const {success, data} = upsStatusDataSchema.safeParse(message);
-        if(!success){
-            this.upsStatus = null;
-            return;
-        }
-
-        this.upsStatus = data;
-        try{
-            await this.stats.create({
-                ts: new Date(),
-                inputVoltage: this.upsStatus.voltages.input,
-                outputVoltage: this.upsStatus.voltages.output
-            }, {ignoreDuplicates: true});
-        }catch(e){
-            this.logger.warn(`Failed to write data to sqlite database. Error: ${formatError(e)}`);
-        }
     }
 
 }
